@@ -90,9 +90,7 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
 
         acquireLockTime = (System.currentTimeMillis() - oldTime);
         oldTime = System.currentTimeMillis();
-        if(requestHandlerLOG.isTraceEnabled()){
-          requestHandlerLOG.debug("All Locks Acquired. Time " + acquireLockTime + " ms");
-        }
+        requestHandlerLOG.info("All Locks Acquired. Time " + acquireLockTime + " ms");
         //sometimes in setup we call light weight request handler that messes up with the NDC
         removeNDC();
         setNDC(info);
@@ -109,9 +107,7 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
         }
         inMemoryProcessingTime = (System.currentTimeMillis() - oldTime);
         oldTime = System.currentTimeMillis();
-        if(requestHandlerLOG.isTraceEnabled()) {
-          requestHandlerLOG.debug("In Memory Processing Finished. Time " + inMemoryProcessingTime + " ms");
-        }
+        requestHandlerLOG.info("In Memory Processing Finished. Time " + inMemoryProcessingTime + " ms");
 
         TransactionsStats.TransactionStat stat = TransactionsStats.getInstance()
             .collectStats(opType,
@@ -124,19 +120,17 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
           stat.setTimes(acquireLockTime, inMemoryProcessingTime, commitTime);
         }
 
-        if(requestHandlerLOG.isTraceEnabled()) {
-          requestHandlerLOG.debug("TX committed. Time " + commitTime + " ms");
-        }
+        requestHandlerLOG.info("TX committed. Time " + commitTime + " ms");
         totalTime = (System.currentTimeMillis() - txStartTime);
         //if(requestHandlerLOG.isTraceEnabled()) {
-          String opName = !NDCWrapper.NDCEnabled()?opType+" ":"";
-          requestHandlerLOG.debug(opName+"TX Finished. " +
-                  "TX Time: " + (totalTime) + " ms, " +
-                  // -1 because 'tryCount` also counts the initial attempt which is technically not a retry
-                  "RetryCount: " + (tryCount-1) + ", " +
-                  "TX Stats -- Setup: " + setupTime + "ms, AcquireLocks: " + acquireLockTime + "ms, " +
-                  "InMemoryProcessing: " + inMemoryProcessingTime + "ms, " +
-                  "CommitTime: " + commitTime + "ms. Locks: "+ getINodeLockInfo(locksAcquirer.getLocks()));
+        String opName = !NDCWrapper.NDCEnabled()?opType+" ":"";
+        requestHandlerLOG.info(opName+"TX Finished. " +
+                "TX Time: " + (totalTime) + " ms, " +
+                // -1 because 'tryCount` also counts the initial attempt which is technically not a retry
+                "RetryCount: " + (tryCount-1) + ", " +
+                "TX Stats -- Setup: " + setupTime + "ms, AcquireLocks: " + acquireLockTime + "ms, " +
+                "InMemoryProcessing: " + inMemoryProcessingTime + "ms, " +
+                "CommitTime: " + commitTime + "ms. Locks: "+ getINodeLockInfo(locksAcquirer.getLocks()));
         //}
         //post TX phase
         //any error in this phase will not re-start the tx
