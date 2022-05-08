@@ -45,7 +45,6 @@ public abstract class EntityContext<T> {
   protected boolean storageCallPrevented = false;
 
   public enum LockMode {
-
     READ_LOCK,
     WRITE_LOCK,
     READ_COMMITTED
