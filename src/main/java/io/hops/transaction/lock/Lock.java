@@ -85,16 +85,16 @@ public abstract class Lock implements Comparable<Lock> {
   protected final static TransactionLockTypes.LockType DEFAULT_LOCK_TYPE =
       TransactionLockTypes.LockType.READ_COMMITTED;
   
-  protected abstract void acquire(TransactionLocks locks) throws IOException;
-  
-  protected abstract Type getType();
+  public abstract void acquire(TransactionLocks locks) throws IOException;
+
+  public abstract Type getType();
 
   @Override
   public int compareTo(Lock o) {
     return getType().compareTo(o.getType());
   }
-  
-  protected static void setLockMode(TransactionLockTypes.LockType mode)
+
+  public static void setLockMode(TransactionLockTypes.LockType mode)
       throws StorageException {
     switch (mode) {
       case WRITE:
@@ -109,7 +109,7 @@ public abstract class Lock implements Comparable<Lock> {
     }
   }
 
-  protected <T> Collection<T> acquireLockList(
+  public <T> Collection<T> acquireLockList(
       TransactionLockTypes.LockType lock, FinderType<T> finder, Object... param)
       throws StorageException, TransactionContextException {
 
@@ -121,7 +121,7 @@ public abstract class Lock implements Comparable<Lock> {
     }
   }
 
-  protected <T> T acquireLock(TransactionLockTypes.LockType lock,
+  public <T> T acquireLock(TransactionLockTypes.LockType lock,
       FinderType<T> finder, Object... param)
       throws StorageException, TransactionContextException {
 

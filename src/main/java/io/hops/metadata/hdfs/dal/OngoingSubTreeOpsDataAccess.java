@@ -40,5 +40,5 @@ public interface OngoingSubTreeOpsDataAccess<T> extends EntityDataAccess {
   Collection<T> allOps() throws StorageException;
 
   void prepare(Collection<T> removed, Collection<T> newed,
-      Collection<T> modified) throws StorageException;
+               Collection<T> modified) throws StorageException;
 }

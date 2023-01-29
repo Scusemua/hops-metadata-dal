@@ -19,16 +19,35 @@ import io.hops.StorageConnector;
 import io.hops.log.NDCWrapper;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import java.util.Random;
+
+import java.io.Serializable;
+import java.util.*;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 
 public abstract class RequestHandler {
   private long waitTime;
 
-  public interface OperationType {
+  private static final TimeZone UTC_ZONE = TimeZone.getTimeZone("UTC");
+
+  public interface OperationType extends Serializable {
+    /**
+     * Returns true if the instance on which this function is called is a write operation that requires the use
+     * of the serverless consistency protocol. Otherwise, returns false.
+     */
+    boolean shouldUseConsistencyProtocol();
+
+    /**
+     * Returns true if the given OperationType indicates/denotes/is a write operation that requires the use
+     * of the serverless consistency protocol. Otherwise, returns false.
+     * @param operationType The OperationType in question.
+     */
+    boolean shouldUseConsistencyProtocol(OperationType operationType);
+
+    /**
+     * Return the name of the OperationType in question.
+     */
+    String getName();
   }
 
   protected static Log requestHandlerLOG = LogFactory.getLog(RequestHandler.class);
@@ -68,6 +87,11 @@ public abstract class RequestHandler {
     return execute(info);
   }
 
+//  /**
+//   * Handle any pending ACKs that we received while acting as a leader for a write transaction.
+//   */
+//  protected abstract void handlePendingAcks();
+
   protected abstract Object execute(Object info) throws IOException;
 
   public abstract Object performTask() throws IOException;
@@ -75,6 +99,14 @@ public abstract class RequestHandler {
   public RequestHandler setParams(Object... params) {
     this.params = params;
     return this;
+  }
+
+  /**
+   * Get the current UTC time in milliseconds.
+   * @return the current UTC time in milliseconds.
+   */
+  protected static long getUtcTime() {
+    return Calendar.getInstance(UTC_ZONE).getTimeInMillis();
   }
 
   public Object[] getParams() {

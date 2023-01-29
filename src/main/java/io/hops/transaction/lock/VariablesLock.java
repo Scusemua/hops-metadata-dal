@@ -40,20 +40,20 @@ public final class VariablesLock extends Lock {
 
   private final Map<Variable.Finder, TransactionLockTypes.LockType> variables;
 
-  VariablesLock() {
+  public VariablesLock() {
     this.variables =
         new EnumMap<>(
             Variable.Finder.class);
   }
 
-  VariablesLock addVariable(Variable.Finder variableType,
+  public VariablesLock addVariable(Variable.Finder variableType,
       TransactionLockTypes.LockType lockType) {
     this.variables.put(variableType, lockType);
     return this;
   }
 
   @Override
-  protected void acquire(TransactionLocks locks) throws IOException {
+  public void acquire(TransactionLocks locks) throws IOException {
     for (Map.Entry<Variable.Finder, TransactionLockTypes.LockType> e : variables
         .entrySet()) {
       acquireLock(e.getValue(), e.getKey());
@@ -66,7 +66,7 @@ public final class VariablesLock extends Lock {
   }
 
   @Override
-  protected final Type getType() {
+  public final Type getType() {
     return Type.Variable;
   }
 }

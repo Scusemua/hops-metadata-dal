@@ -21,10 +21,8 @@ import io.hops.transaction.handler.RequestHandler;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
@@ -33,11 +31,69 @@ import static io.hops.transaction.context.EntityContextStat.HitMissCounter;
 import static io.hops.transaction.context.EntityContextStat.StatsAggregator;
 
 public class TransactionsStats {
-
-  private static Log log = LogFactory.getLog(TransactionsStats.class);
+  private static final Log LOG = LogFactory.getLog(TransactionsStats.class);
   private static TransactionsStats instance = null;
 
-  public static class TransactionStat {
+  /**
+   * Clear the current statistics in preparation for handling a new request.
+   */
+  public void clearForServerless() throws IOException {
+    LOG.debug("Clearing TransactionsStats now.");
+    clear();
+  }
+
+  /**
+   * Export the stats that we encountered while processing the current request.
+   *
+   * @param requestId The unique ID of the associated request.
+   */
+  public ServerlessStatisticsPackage exportForServerless(String requestId) {
+    LOG.debug("Exporting " + transactionStats.size() + " transaction statistics and " +
+            0 + " resolving cache statistics for request " + requestId + " now.");
+            // resolvingCacheStats.size() + " resolving cache statistics for request " + requestId + " now.");
+    // FOR NOW, WE ARE NEVER EXPORTING RESOLVING CACHE STATISTICS.
+    return new ServerlessStatisticsPackage(requestId, transactionStats, new ArrayList<>());
+  }
+
+  /**
+   * Encapsulates a package of transaction statistics for a particular
+   * request/invocation of a serverless name node.
+   */
+  public static class ServerlessStatisticsPackage implements Serializable {
+    private static final long serialVersionUID = 705940487995065547L;
+    private final List<TransactionStat> transactionStats;
+    private final List<ResolvingCacheStat> resolvingCacheStats;
+    // private final List<EntityContextStat.StatsAggregator> statsAggregators;
+    private final String requestId;
+
+    public ServerlessStatisticsPackage(String requestId, List<TransactionStat> transactionStats,
+                                       List<ResolvingCacheStat> resolvingCacheStats/*,
+                                       List<EntityContextStat.StatsAggregator> statsAggregators*/) {
+      this.requestId = requestId;
+      this.transactionStats = transactionStats;
+      this.resolvingCacheStats = resolvingCacheStats;
+      // this.statsAggregators = statsAggregators;
+    }
+
+    public String getRequestId() {
+      return requestId;
+    }
+
+//    public List<StatsAggregator> getStatsAggregators() {
+//      return statsAggregators;
+//    }
+
+    public List<ResolvingCacheStat> getResolvingCacheStats() {
+      return resolvingCacheStats;
+    }
+
+    public List<TransactionStat> getTransactionStats() {
+      return transactionStats;
+    }
+  }
+
+  public static class TransactionStat implements Serializable {
+    private static final long serialVersionUID = -4618265598070114444L;
     private RequestHandler.OperationType name;
     private Collection<EntityContextStat> stats;
     private Exception ignoredException;
@@ -53,14 +109,25 @@ public class TransactionsStats {
       this.ignoredException = ignoredException;
     }
 
+    public Collection<EntityContextStat> getStats() {
+      return stats;
+    }
+
+    public RequestHandler.OperationType getName() {
+      return name;
+    }
+
+    public Exception getIgnoredException() {
+      return ignoredException;
+    }
+
     public void setTimes(long acquire, long processing, long commit){
       this.acquireTime = acquire;
       this.processingTime = processing;
       this.commitTime = commit;
     }
 
-
-    static String getHeader(){
+    public static String getHeader(){
       String header = "Tx,";
       for(FinderType.Annotation annotation : FinderType.Annotation.values()){
         String ann = annotation.toString();
@@ -77,7 +144,7 @@ public class TransactionsStats {
       String tx = name.toString() + ",";
       StatsAggregator txStatsAggregator = new StatsAggregator();
 
-      for(EntityContextStat contextStat : stats){
+      for ( EntityContextStat contextStat : stats) {
         txStatsAggregator.update(contextStat.getStatsAggregator());
       }
 
@@ -104,7 +171,9 @@ public class TransactionsStats {
   }
 
 
-  public static class ResolvingCacheStat {
+  public static class ResolvingCacheStat implements Serializable {
+    private static final long serialVersionUID = -7183415931601175290L;
+
     public static enum Op{
       GET,
       SET
@@ -119,7 +188,7 @@ public class TransactionsStats {
       this.roundTrips = roundTrips;
     }
 
-    static String getHeader(){
+    public static String getHeader(){
       return "Operation, Elapsed, RoundTrips";
     }
     @Override
@@ -153,39 +222,15 @@ public class TransactionsStats {
   }
 
 
-  public void setConfiguration(boolean enableOrDisable, String statsDir, int
-      writerRound, boolean detailed)
+  public void setConfiguration(boolean enableOrDisable, String statsDir, int writerRound, boolean detailed)
       throws IOException {
     if (enableOrDisable) {
+      LOG.debug("Transaction Statistics is ENABLED. Detailed statistics: " + detailed);
       this.enabled = true;
-      this.statsDir = new File(statsDir);
-      this.WRITER_ROUND = writerRound;
-      if (!this.statsDir.exists()) {
-        this.statsDir.mkdirs();
-      }
       BaseEntityContext.enableStats();
-
-      this.writerThread = new Thread(new Runnable() {
-        @Override
-        public void run() {
-          while (enabled){
-            try {
-              Thread.sleep(WRITER_ROUND*1000L);
-            } catch (InterruptedException e) {
-              log.warn(e);
-              Thread.currentThread().interrupt();
-            }
-            try {
-              dump();
-            } catch (IOException e) {
-             log.warn(e);
-            }
-          }
-        }
-      });
-      this.writerThread.start();
       this.detailedStats = detailed;
     } else {
+      LOG.debug("Transaction Statistics is DISABLED.");
       this.enabled = false;
       BaseEntityContext.disableStats();
     }
@@ -238,16 +283,16 @@ public class TransactionsStats {
   public void close() throws IOException {
     if(enabled) {
       enabled = false;
-      writerThread.interrupt();
-      if(statsLogWriter != null) {
-        statsLogWriter.close();
-      }
-      if(csvFileWriter != null) {
-        csvFileWriter.close();
-      }
-      if(memcacheCSVFileWriter != null){
-        memcacheCSVFileWriter.close();
-      }
+//      writerThread.interrupt();
+//      if(statsLogWriter != null) {
+//        statsLogWriter.close();
+//      }
+//      if(csvFileWriter != null) {
+//        csvFileWriter.close();
+//      }
+//      if(memcacheCSVFileWriter != null){
+//        memcacheCSVFileWriter.close();
+//      }
     }
   }
 

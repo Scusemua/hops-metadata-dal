@@ -16,8 +16,105 @@
 package io.hops.metadata.hdfs;
 
 public class TablesDef {
-  public interface BlockLookUpTableDef {
 
+  public interface InvalidationTablesDef {
+    String TABLE_NAME0 = "invalidations_deployment0"; // Table used for deployment0.
+    String TABLE_NAME1 = "invalidations_deployment1"; // Table used for deployment1.
+    String TABLE_NAME2 = "invalidations_deployment2"; // Table used for deployment2.
+    String TABLE_NAME3 = "invalidations_deployment3"; // Table used for deployment2.
+    String TABLE_NAME4 = "invalidations_deployment4"; // Table used for deployment2.
+    String TABLE_NAME5 = "invalidations_deployment5"; // Table used for deployment2.
+    String TABLE_NAME6 = "invalidations_deployment6"; // Table used for deployment2.
+    String TABLE_NAME7 = "invalidations_deployment7"; // Table used for deployment2.
+    String TABLE_NAME8 = "invalidations_deployment8"; // Table used for deployment2.
+    String TABLE_NAME9 = "invalidations_deployment9"; // Table used for deployment2.
+    String INODE_ID = "inode_id";
+    String PARENT_ID = "parent_id";
+    String LEADER_ID = "leader_id";
+    String TX_START = "tx_start";
+    String OPERATION_ID = "op_id";
+  }
+
+  public interface WriteAcknowledgementsTableDef {
+    String TABLE_NAME0 = "write_acks_deployment0";  // Table used for deployment0.
+    String TABLE_NAME1 = "write_acks_deployment1";  // Table used for deployment1.
+    String TABLE_NAME2 = "write_acks_deployment2";  // Table used for deployment2.
+    String TABLE_NAME3 = "write_acks_deployment3";  // Table used for deployment2.
+    String TABLE_NAME4 = "write_acks_deployment4";  // Table used for deployment2.
+    String TABLE_NAME5 = "write_acks_deployment5";  // Table used for deployment2.
+    String TABLE_NAME6 = "write_acks_deployment6";  // Table used for deployment2.
+    String TABLE_NAME7 = "write_acks_deployment7";  // Table used for deployment2.
+    String TABLE_NAME8 = "write_acks_deployment8";  // Table used for deployment2.
+    String TABLE_NAME9 = "write_acks_deployment9";  // Table used for deployment2.
+    String NAME_NODE_ID = "namenode_id";
+    String DEPLOYMENT_NUMBER = "deployment_number";
+    String ACKNOWLEDGED = "acknowledged";
+    String OPERATION_ID = "op_id";
+    String LEADER_ID = "leader_id";
+    String TIMESTAMP = "timestamp";
+  }
+
+  /**
+   * Defines the MySQL NDB table for the Serverless NameNodes.
+   */
+  public interface ServerlessNameNodesTableDef {
+    String TABLE_NAME = "serverless_namenodes";
+    String NAME_NODE_ID = "namenode_id";
+    String FUNCTION_NAME = "function_name";
+    String REPLICA_ID = "replica_id";
+    String CREATION_TIME = "creation_time";
+  }
+
+  /**
+   * Defines the MySQL NDB table for the DataNodes.
+   * This table is used by serverless NameNodes to establish connections with the DataNodes.
+   */
+  public interface DataNodesTableDef {
+    String TABLE_NAME = "datanodes";
+    String DATANODE_UUID = "datanode_uuid";
+    String HOSTNAME = "hostname";
+    String IP_ADDR = "ipaddr";
+    String XFER_PORT = "xfer_port";
+    String INFO_PORT = "info_port";
+    String IPC_PORT = "ipc_port";
+    String INFO_SECURE_PORT = "info_secure_port";
+    String CREATION_TIME = "creation_time";
+  }
+
+  /**
+   * Defines the MySQL NDB table for the StorageReports.
+   */
+  public interface StorageReportsTableDef {
+    String TABLE_NAME = "storage_reports";
+    String GROUP_ID = "group_id";
+    String REPORT_ID = "report_id";
+    String DATANODE_UUID = "datanode_uuid";
+    String FAILED = "failed";
+    String CAPACITY = "capacity";
+    String DFS_USED = "dfsUsed";
+    String REMAINING = "remaining";
+    String BLOCK_POOL_USED = "blockPoolUsed";
+    String DATANODE_STORAGE_ID = "datanodeStorageId";
+  }
+
+  public interface DatanodeStoragesTableDef {
+    String TABLE_NAME = "datanode_storages";
+    String STORAGE_ID = "storage_id";
+    String DATANODE_UUID = "datanode_uuid";
+    String STATE = "state";
+    String STORAGE_TYPE = "storage_type";
+  }
+
+  public interface IntermediateBlockReportsTableDef {
+    String TABLE_NAME = "intermediate_block_reports";
+    String REPORT_ID = "report_id";
+    String PUBLISHED_AT = "published_at"; // Timestamp at which the report was published to intermediate storage.
+    String DATANODE_UUID = "datanode_uuid";
+    String POOL_ID = "pool_id";
+    String RECEIVED_AND_DELETED_BLOCKS = "received_and_deleted_blocks";
+  }
+
+  public interface BlockLookUpTableDef {
     String TABLE_NAME = "hdfs_block_lookup_table";
     String BLOCK_ID = "block_id";
     String INODE_ID = "inode_id";
@@ -50,6 +147,7 @@ public class TablesDef {
     String HEADER = "header";
     String SYMLINK = "symlink";
     String QUOTA_ENABLED = "quota_enabled";
+    //String INVALIDATED = "inv";
     String UNDER_CONSTRUCTION = "under_construction";
     String SUBTREE_LOCKED = "subtree_locked";
     String SUBTREE_LOCK_OWNER = "subtree_lock_owner";

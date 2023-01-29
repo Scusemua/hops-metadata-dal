@@ -31,7 +31,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 
-abstract class BaseEntityContext<Key, Entity> extends EntityContext<Entity> {
+public abstract class BaseEntityContext<Key, Entity> extends EntityContext<Entity> {
 
   private static boolean statsEnabled = false;
 
@@ -116,8 +116,7 @@ abstract class BaseEntityContext<Key, Entity> extends EntityContext<Entity> {
     if (contextEntity != null && contextEntity.getEntity() != null) {
       contextEntity.update(entity, State.REMOVED);
     } else {
-      throw new TransactionContextException(
-          "Unattached Entity passed to be removed " + entity);
+      throw new TransactionContextException("Unattached Entity passed to be removed " + entity);
     }
   }
   

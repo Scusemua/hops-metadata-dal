@@ -67,6 +67,15 @@ public class INodeBase {
     this.numSysXAttrs = numSysXAttrs;
   }
 
+  @Override
+  public String toString() {
+    return "INodeBase(id=" + id + ", parentId=" + parentId + ", isDir=" + isDir + ", name=" + name + ")";
+  }
+
+//  public void setInvalidated(boolean invalidated) { this.invalidated = invalidated; }
+//
+//  public boolean getInvalidated() { return this.invalidated; }
+
   public long getId() {
     return id;
   }

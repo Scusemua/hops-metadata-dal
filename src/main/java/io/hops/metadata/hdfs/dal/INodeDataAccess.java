@@ -26,61 +26,75 @@ import java.util.Collection;
 import java.util.List;
 
 public interface INodeDataAccess<T> extends EntityDataAccess {
-  
+
   T findInodeByIdFTIS(long inodeId) throws StorageException;
 
+//  /**
+//   * Set the `INV` column of the INode with the given ID to the specified value.
+//   * @param inodeId The ID of the INode in question.
+//   * @param flag The value to set the `INV` column.
+//   */
+//  void setInvalidFlag(long inodeId, boolean flag) throws StorageException;
+//
+//  /**
+//   * Set the `INV` column of the INodes with the given IDs to the specified value.
+//   * @param inodeIds The IDs of the INodes in question.
+//   * @param flag The value to set the `INV` column.
+//   */
+//  void setInvalidFlag(long[] inodeIds, boolean flag) throws StorageException;
+
   Collection<T> findInodesByIdsFTIS(long[] inodeId) throws StorageException;
-  
+
   List<T> findInodesByParentIdFTIS(long parentId) throws StorageException;
 
   List<T> findInodesByParentIdAndPartitionIdPPIS(long parentId, long partitionId) throws StorageException;
 
   List<ProjectedINode> findInodesPPISTx(long parentId, long partitionId, EntityContext.LockMode lock)
-      throws StorageException;
+          throws StorageException;
 
   List<ProjectedINode> findInodesFTISTx(long parentId, EntityContext.LockMode lock)
-      throws StorageException;
+          throws StorageException;
 
   T findInodeByNameParentIdAndPartitionIdPK(String name, long parentId, long partitionId)
-      throws StorageException;
+          throws StorageException;
 
   List<T> getINodesPkBatched(String[] names, long[] parentIds, long[] partitionIds)
-      throws StorageException;
+          throws StorageException;
 
   List<T> lockInodesUsingPkBatchTx(String[] names, long[] parentIds, long[] partitionIds, EntityContext.LockMode lock)
           throws StorageException;
 
   List<INodeIdentifier> getAllINodeFiles(long startId, long endId)
-      throws StorageException;
-  
+          throws StorageException;
+
   boolean haveFilesWithIdsGreaterThan(long id) throws StorageException;
-  
+
   boolean haveFilesWithIdsBetween(long startId, long endId)
-      throws StorageException;
-  
+          throws StorageException;
+
   long getMinFileId() throws StorageException;
-  
+
   long getMaxFileId() throws StorageException;
-  
+
   int countAllFiles() throws StorageException;
-  
+
   void prepare(Collection<T> removed, Collection<T> newed,
-      Collection<T> modified) throws StorageException;
+               Collection<T> modified) throws StorageException;
 
   int countAll() throws StorageException;
-  
+
   boolean hasChildren(long parentId, boolean areChildrenRandomlyPartitioned) throws StorageException;
-  
+
   List<T> allINodes() throws StorageException; // only for testing
 
   //only for testing
   List<T> findINodes(String name) throws StorageException;
-  
+
   void deleteInode(String name)throws StorageException; // only for testing
 
   void updateLogicalTime(Collection<INodeMetadataLogEntry> logEntries) throws StorageException;
 
   int countSubtreeLockedInodes() throws StorageException; // only for testing
-  
+
   public long getMaxId() throws StorageException;
 }

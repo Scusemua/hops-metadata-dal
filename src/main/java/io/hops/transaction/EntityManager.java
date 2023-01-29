@@ -34,11 +34,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static io.hops.transaction.context.EntityContext.*;
+
 public class EntityManager {
-  public static final Logger LOG = LoggerFactory.getLogger(EntityManager.class);
 
   private EntityManager() {
   }
+  public static final Logger LOG = LoggerFactory.getLogger(EntityManager.class);
 
   private static ThreadLocal<TransactionContext> threadContext = new ThreadLocal();
   private static CopyOnWriteArrayList<ContextInitializer> contextInitializers =
@@ -51,6 +53,16 @@ public class EntityManager {
       initialized = true;
       RequestHandler.setStorageConnector(ci.getConnector());
     }
+  }
+
+  /**
+   * Return the given {@link EntityContext} mapped by the given class, should one exist.
+   * Otherwise, returns null.
+   */
+  public static EntityContext<?> getEntityContext(Class<?> clazz) {
+    TransactionContext context = context();
+
+    return context.getEntityContext(clazz);
   }
   
   private static TransactionContext context() {
@@ -122,20 +134,38 @@ public class EntityManager {
     context().snapshotMaintenance(cmds, params);
   }
 
+  /**
+   * Pass true to enable; pass false to disable.
+   */
+  public static void toggleMetadataCacheReads(boolean enabled) {
+    if (enabled) LOG.trace(ANSI_GREEN + "[ENABLING METADATA CACHE READS]" + ANSI_RESET);
+    else LOG.trace(ANSI_RED + "[DISABLING METADATA CACHE READS]" + ANSI_RESET);
+    EntityContext.toggleMetadataCacheReads(enabled);
+  }
+
+
+  /**
+   * Pass true to enable; pass false to disable.
+   */
+  public static void toggleMetadataCacheWrites(boolean enabled) {
+    if (enabled) LOG.trace(ANSI_GREEN + "[ENABLING METADATA WRITES]" + ANSI_RESET);
+    else LOG.trace(ANSI_RED + "[DISABLING METADATA WRITES]" + ANSI_RESET);
+    EntityContext.toggleMetadataCacheWrites(enabled);
+  }
   public static void writeLock() throws StorageException {
-    LOG.trace("[LOCKING: WRITE]");
+    LOG.trace(ANSI_CYAN + "[LOCKING: WRITE]" + ANSI_RESET);
     EntityContext.setLockMode(EntityContext.LockMode.WRITE_LOCK);
     contextInitializers.get(0).getConnector().writeLock();
   }
 
   public static void readLock() throws StorageException {
-    LOG.trace("[LOCKING: READ]");
+    LOG.trace(ANSI_BLUE + "[LOCKING: READ]" + ANSI_RESET);
     EntityContext.setLockMode(EntityContext.LockMode.READ_LOCK);
     contextInitializers.get(0).getConnector().readLock();
   }
 
   public static void readCommited() throws StorageException {
-    LOG.trace("[LOCKING: READ COMMITTED]");
+    LOG.trace(ANSI_PURPLE + "[LOCKING: READ COMMITTED]" + ANSI_RESET);
     EntityContext.setLockMode(EntityContext.LockMode.READ_COMMITTED);
     contextInitializers.get(0).getConnector().readCommitted();
   }
@@ -163,6 +193,13 @@ public class EntityManager {
             storageMap);
     threadContext.set(context);
     return context;
+  }
+
+  public static boolean getStorageCallsPreventedINode() {
+    if (threadContext.get() == null)
+      return false;
+
+    return context().getStorageCallsPreventedINode();
   }
   
   public static void removeContext() {

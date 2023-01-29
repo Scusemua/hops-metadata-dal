@@ -17,22 +17,65 @@ package io.hops.transaction.handler;
 
 import io.hops.exception.*;
 import io.hops.log.NDCWrapper;
+import io.hops.metadata.hdfs.entity.INode;
+import io.hops.metrics.TransactionAttempt;
+import io.hops.metrics.TransactionEvent;
 import io.hops.transaction.EntityManager;
 import io.hops.transaction.TransactionInfo;
+import io.hops.transaction.context.EntityContext;
 import io.hops.transaction.context.TransactionsStats;
 import io.hops.transaction.lock.Lock;
 import io.hops.transaction.lock.TransactionLockAcquirer;
 import io.hops.transaction.lock.TransactionLocks;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public abstract class TransactionalRequestHandler extends RequestHandler {
+  private static Random rng = new Random();
 
   public TransactionalRequestHandler(OperationType opType) {
     super(opType);
+    this.operationId = rng.nextLong();
   }
+
+  /**
+   * Used as a unique identifier for the operation. This is only used during write operations.
+   */
+  protected final long operationId;
+
+  /**
+   * Used for event-style data collection of transaction timings.
+   */
+  protected TransactionEvent transactionEvent;
+
+  protected boolean printSuccessMessage = false;
+
+  /**
+   * If False, we do not bother with creating TX events.
+   */
+  public static boolean TX_EVENTS_ENABLED = true;
+
+  /**
+   * Override this function to implement a serverless consistency protocol. This will get called
+   * AFTER local, in-memory processing occurs but (immediately) before the changes are committed
+   * to NDB.
+   *
+   * @param txStartTime The time at which the transaction began. Used to order operations.
+   * @param attempt TransactionAttempt object, used to record metrics about the consistency protocol.
+   *
+   * @return True if the transaction can safely proceed, otherwise false.
+   */
+  protected abstract boolean consistencyProtocol(long txStartTime, TransactionAttempt attempt) throws IOException;
+
+  /**
+   * Should be overridden by a class in the main codebase. This function should be used
+   * to save the {@link TransactionEvent} (and the contained {@link TransactionAttempt} instances
+   * within) in order for them to be analyzed/plotted.
+   */
+  public abstract void commitEvents();
 
   @Override
   protected Object execute(Object info) throws IOException {
@@ -42,58 +85,74 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
     Object txRetValue = null;
     List<Throwable> exceptions = new ArrayList<>();
 
+    if (TX_EVENTS_ENABLED) {
+      // Record timings of the various stages in the event.
+      transactionEvent = new TransactionEvent(operationId);
+      transactionEvent.setTransactionStartTime(System.currentTimeMillis());
+    }
+
+    TransactionAttempt transactionAttempt = null;
     while (tryCount <= RETRY_COUNT) {
-      long expWaitTime = exponentialBackoff();
+      if (TX_EVENTS_ENABLED) {
+        transactionAttempt = new TransactionAttempt(tryCount);
+        transactionEvent.addAttempt(transactionAttempt);
+      }
+
+      exponentialBackoff();
       long txStartTime = System.currentTimeMillis();
       long oldTime = System.currentTimeMillis();
 
       long setupTime = -1;
-      long beginTxTime = -1;
       long acquireLockTime = -1;
       long inMemoryProcessingTime = -1;
+      long consistencyProtocolTime = -1;
       long commitTime = -1;
-      long totalTime = -1;
+      long totalTime;
       TransactionLockAcquirer locksAcquirer = null;
 
       tryCount++;
       ignoredException = null;
       committed = false;
-      
+
       EntityManager.preventStorageCall(false);
       boolean success = false;
       try {
         setNDC(info);
-        if(requestHandlerLOG.isTraceEnabled()) {
-          requestHandlerLOG.trace("Pretransaction phase started");
+        if(requestHandlerLOG.isDebugEnabled()) {
+          requestHandlerLOG.debug("Pre-transaction phase started");
         }
         preTransactionSetup();
         //sometimes in setup we call light weight request handler that messes up with the NDC
         removeNDC();
         setNDC(info);
-        setupTime = (System.currentTimeMillis() - oldTime);
-        oldTime = System.currentTimeMillis();
-        if(requestHandlerLOG.isTraceEnabled()) {
-          requestHandlerLOG.trace("Pretransaction phase finished. Time " + setupTime + " ms");
+        long lockAcquireStartTime = System.currentTimeMillis();
+        setupTime = (lockAcquireStartTime - oldTime);
+
+        if(requestHandlerLOG.isDebugEnabled()) {
+          requestHandlerLOG.debug("Pre-transaction phase finished. Time " + setupTime + " ms");
         }
         setRandomPartitioningKey();
         EntityManager.begin();
-        if(requestHandlerLOG.isTraceEnabled()) {
-          requestHandlerLOG.trace("TX Started");
+        if(requestHandlerLOG.isDebugEnabled()) {
+          requestHandlerLOG.debug("TX Started");
         }
-        beginTxTime = (System.currentTimeMillis() - oldTime);
+        //beginTxTime = (System.currentTimeMillis() - oldTime);
         oldTime = System.currentTimeMillis();
         
         locksAcquirer = newLockAcquirer();
+        // Basically populate the TransactionLocks object with the locks that we need to acquire.
+        // This doesn't actually do any acquiring of locks as far as I know.
         acquireLock(locksAcquirer.getLocks());
 
+        // This actually acquires the locks and reads the metadata into memory from intermediate storage.
         locksAcquirer.acquire();
 
-        acquireLockTime = (System.currentTimeMillis() - oldTime);
-        oldTime = System.currentTimeMillis();
-        if(requestHandlerLOG.isTraceEnabled()){
-          requestHandlerLOG.trace("All Locks Acquired. Time " + acquireLockTime + " ms");
+        long inMemoryStart = System.currentTimeMillis();
+        acquireLockTime = (inMemoryStart - oldTime);
+        if(requestHandlerLOG.isDebugEnabled()){
+          requestHandlerLOG.debug("All Locks Acquired. Time " + acquireLockTime + " ms");
         }
-        //sometimes in setup we call light weight request handler that messes up with the NDC
+        //sometimes in setup we call lightweight request handler that messes up with the NDC
         removeNDC();
         setNDC(info);
         EntityManager.preventStorageCall(true);
@@ -107,25 +166,75 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
             ignoredException = e;
           }
         }
-        inMemoryProcessingTime = (System.currentTimeMillis() - oldTime);
+        long consistencyStartTime = System.currentTimeMillis();
+        inMemoryProcessingTime = (consistencyStartTime - inMemoryStart);
+
         oldTime = System.currentTimeMillis();
-        if(requestHandlerLOG.isTraceEnabled()) {
-          requestHandlerLOG.trace("In Memory Processing Finished. Time " + inMemoryProcessingTime + " ms");
+        if(requestHandlerLOG.isDebugEnabled()) {
+          requestHandlerLOG.debug("In Memory Processing Finished. Time " + inMemoryProcessingTime + " ms");
         }
 
         TransactionsStats.TransactionStat stat = TransactionsStats.getInstance()
             .collectStats(opType,
             ignoredException);
 
-        EntityManager.commit(locksAcquirer.getLocks());
-        committed = true;
-        commitTime = (System.currentTimeMillis() - oldTime);
-        if(stat != null){
-          stat.setTimes(acquireLockTime, inMemoryProcessingTime, commitTime);
+        boolean canProceed = consistencyProtocol(txStartTime, transactionAttempt);
+
+        long commitStart = System.currentTimeMillis();
+        consistencyProtocolTime = (commitStart - oldTime);
+        oldTime = System.currentTimeMillis();
+
+        if (canProceed) {
+          if (printSuccessMessage && requestHandlerLOG.isDebugEnabled())
+            requestHandlerLOG.debug("Consistency protocol for TX " + operationId + " succeeded after " + consistencyProtocolTime + " ms");
+        } else {
+          if (TX_EVENTS_ENABLED && transactionAttempt != null) {
+            transactionAttempt.setCommitEnd(System.currentTimeMillis());
+            transactionAttempt.setAcquireLocksStart(lockAcquireStartTime);
+            transactionAttempt.setAcquireLocksEnd(inMemoryStart);
+            transactionAttempt.setProcessingStart(inMemoryStart);
+            transactionAttempt.setProcessingEnd(consistencyStartTime);
+            transactionAttempt.setConsistencyProtocolStart(consistencyStartTime);
+            transactionAttempt.setConsistencyProtocolEnd(commitStart);
+            transactionAttempt.setConsistencyProtocolSucceeded(false);
+            transactionAttempt.setCommitStart(commitStart);
+          }
+          throw new IOException("Consistency protocol for TX " + operationId + " FAILED after " +
+                  consistencyProtocolTime + " ms.");
         }
 
-        if(requestHandlerLOG.isTraceEnabled()) {
-          requestHandlerLOG.trace("TX committed. Time " + commitTime + " ms");
+        TransactionLocks transactionLocks = locksAcquirer.getLocks();
+
+        // We have now acquired the locks. At this point, we should check for any new write operations on
+        // the INodes we're updating. Since we hold locks, no new operations can come along and change the `INV` flag,
+        // so whatever exists now is what is going to exist until we finish the transaction.
+        //
+        // If there is a new write operation that has occurred after ours, we do not want to flip the `INV` flags back
+        // to false, as that will screw up the next write operation. So, our goal is to check for the existence of
+        // a later write and, if one exists, make sure all of our nodes have their `INV` flags set to true.
+        // checkAndHandleNewConcurrentWrites(txStartTime);
+
+        EntityManager.commit(transactionLocks);
+        committed = true;
+        commitTime = (System.currentTimeMillis() - oldTime);
+
+        if (TX_EVENTS_ENABLED && transactionAttempt != null) {
+          transactionAttempt.setCommitEnd(System.currentTimeMillis());
+          transactionAttempt.setAcquireLocksStart(lockAcquireStartTime);
+          transactionAttempt.setAcquireLocksEnd(inMemoryStart);
+          transactionAttempt.setProcessingStart(inMemoryStart);
+          transactionAttempt.setProcessingEnd(consistencyStartTime);
+          transactionAttempt.setConsistencyProtocolStart(consistencyStartTime);
+          transactionAttempt.setConsistencyProtocolEnd(commitStart);
+          transactionAttempt.setConsistencyProtocolSucceeded(canProceed);
+          transactionAttempt.setCommitStart(commitStart);
+        }
+
+        if(stat != null)
+          stat.setTimes(acquireLockTime, inMemoryProcessingTime, commitTime);
+
+        if(requestHandlerLOG.isDebugEnabled()) {
+          requestHandlerLOG.debug("TX committed. Time " + commitTime + " ms");
         }
         totalTime = (System.currentTimeMillis() - txStartTime);
         if(requestHandlerLOG.isTraceEnabled()) {
@@ -136,6 +245,7 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
                   "RetryCount: " + (tryCount-1) + ", " +
                   "TX Stats -- Setup: " + setupTime + "ms, AcquireLocks: " + acquireLockTime + "ms, " +
                   "InMemoryProcessing: " + inMemoryProcessingTime + "ms, " +
+                  "ConsistencyProtocol: " + consistencyProtocolTime + "ms, " +
                   "CommitTime: " + commitTime + "ms. Locks: "+ getINodeLockInfo(locksAcquirer.getLocks()));
         }
         //post TX phase
@@ -144,7 +254,13 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
         if (info != null && info instanceof TransactionInfo) {
           ((TransactionInfo) info).performPostTransactionAction();
         }
-      } catch (Throwable t) {
+      }
+      catch (Throwable t) {
+        // If the commit start time is set, then we've entered the commit phase.
+        // Since we encountered an exception, we should end the commit phase here.
+        if (TX_EVENTS_ENABLED && transactionAttempt != null && transactionAttempt.getCommitStart() > 0)
+          transactionAttempt.setCommitEnd(System.currentTimeMillis());
+
         boolean suppressException = suppressFailureMsg(t, tryCount);
         if (!suppressException ) {
           String opName = !NDCWrapper.NDCEnabled() ? opType + " " : "";
@@ -152,7 +268,7 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
             opName = opName + ":" + subOpName;
           }
           String inodeLocks = locksAcquirer != null ? getINodeLockInfo(locksAcquirer.getLocks()):"";
-          requestHandlerLOG.warn(opName + "TX Failed. " +
+          requestHandlerLOG.warn(opName + "TX " + operationId + " Failed. " +
                   "TX Time: " + (System.currentTimeMillis() - txStartTime) + " ms, " +
                   // -1 because 'tryCount` also counts the initial attempt which is technically not a retry
                   "RetryCount: " + (tryCount-1) + ", " +
@@ -161,6 +277,7 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
                   "CommitTime: " + commitTime + "ms. Locks: "+inodeLocks+". " + t, t);
         }
         if (!(t instanceof TransientStorageException) ||  tryCount > RETRY_COUNT) {
+          commitEvents();
           for(Throwable oldExceptions : exceptions) {
             requestHandlerLOG.warn("Exception caught during previous retry: "+oldExceptions, oldExceptions);
           }
@@ -169,20 +286,29 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
           if(suppressException)
             exceptions.add(t);
         }
-      } finally {
+      }
+      finally {
         removeNDC();
-        if (!committed && locksAcquirer!=null) {
+        if (!committed && locksAcquirer != null) {
           try {
-            requestHandlerLOG.trace("TX Failed. Rollback TX");
+            requestHandlerLOG.warn("TX " + operationId + " Failed. Rolling back now...");
+            // requestHandlerLOG.debug(Arrays.toString((new Throwable()).getStackTrace()));
             EntityManager.rollback(locksAcquirer.getLocks());
           } catch (Exception e) {
             requestHandlerLOG.warn("Could not rollback transaction", e);
           }
         }
         //make sure that the context has been removed
-        EntityManager.removeContext(); 
+        EntityManager.removeContext();
+        commitEvents();
       }
-      if(success){
+
+      transactionEvent.setTransactionEndTime(System.currentTimeMillis());
+      transactionEvent.setSuccess(success);
+
+      commitEvents();
+
+      if(success) {
         // If the code is about to return but the exception was caught
         if (ignoredException != null) {
           throw ignoredException;
@@ -195,14 +321,11 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
 
   private boolean suppressFailureMsg(Throwable t, int tryCount ){
     boolean suppressFailureMsg = false;
-    if (opType.toString().equals("GET_BLOCK_LOCATIONS") && t instanceof LockUpgradeException) {
+    if (opType.toString().equals("GET_BLOCK_LOCATIONS") && t instanceof LockUpgradeException ) {
       suppressFailureMsg = true;
-    } else if (opType.toString().equals("COMPLETE_FILE") && t instanceof OutOfDBExtentsException) {
+    } else if (opType.toString().equals("COMPLETE_FILE") && t instanceof OutOfDBExtentsException ) {
       suppressFailureMsg = true;
-    } else if (opType.toString().equals("GET_ADDITIONAL_BLOCK") &&
-            t.getMessage() != null && t.getMessage().contains("Not replicated yet")) {
-      suppressFailureMsg = true;
-    } else if (t instanceof TransientDeadLockException) {
+    } else if ( t instanceof TransientDeadLockException ){
       suppressFailureMsg = true;
     }
 
@@ -232,6 +355,20 @@ public abstract class TransactionalRequestHandler extends RequestHandler {
   public abstract void acquireLock(TransactionLocks locks) throws IOException;
   
   protected abstract TransactionLockAcquirer newLockAcquirer();
+
+//  /**
+//   * This should be called after locks are acquired for the transaction. This function checks for pending
+//   * ACKs in the `write_acknowledgements` table whose associated TX times are >= the current TX being performed
+//   * locally. Specifically, this checks for pending ACKs whose target NN ID is the local NN's ID (i.e., the local
+//   * ServerlessNameNode instance running in this container) and whose TX times satisfy the aforementioned constraint.
+//   *
+//   * If there are any such pending ACKs, we do NOT acknowledge them yet. Instead, for each ACK entry whose target NN ID
+//   * is that of our local NN instance and whose write time is >= the local TX start time, we ensure the associated
+//   * INode has `INV` set to true.
+//   *
+//   * @param txStartTime The time at which this transaction began.
+//   */
+//  protected abstract void checkAndHandleNewConcurrentWrites(long txStartTime) throws StorageException;
 
   @Override
   public TransactionalRequestHandler setParams(Object... params) {

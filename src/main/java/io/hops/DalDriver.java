@@ -15,15 +15,45 @@
  */
 package io.hops;
 
+import io.hops.events.EventManager;
 import io.hops.exception.StorageInitializtionException;
 
 public class DalDriver {
 
+  /**
+   * Load an instance of EventManager specified by the given fully-qualified class name.
+   */
+  public static EventManager loadEventManager(String eventManagerClassName)
+          throws StorageInitializtionException{
+    try {
+      Object instance = Class.forName(eventManagerClassName).newInstance();
+      return (EventManager)instance;
+    } catch (ClassNotFoundException | IllegalAccessException | InstantiationException ex) {
+      throw new StorageInitializtionException(ex);
+    }
+  }
+
   public static DalStorageFactory load(String storageFactoryClassName)
       throws StorageInitializtionException {
     try {
-      return (DalStorageFactory) Class.forName(storageFactoryClassName)
-          .newInstance();
+      System.out.println("Attempting to load storage factory class with class name: \"" + storageFactoryClassName + "\"");
+
+      /*ClassLoader loader = DalStorageFactory.class.getClassLoader();
+      System.out.println(DalStorageFactory.class.getSimpleName() + ".class");
+      System.out.println(String.valueOf(DalStorageFactory.class.getResource("DalStorageFactory.class")));
+      System.out.println(String.valueOf(loader.getResource("io/hops/DalStorageFactory.class")));
+      System.out.println(String.valueOf(DalStorageFactory.class.getProtectionDomain().getCodeSource().getLocation()));*/
+
+      System.out.println("Attempting to create instance of class " + storageFactoryClassName + " without casting it to DalStorageFactory...");
+
+      Object instance = Class.forName(storageFactoryClassName).newInstance();
+
+      System.out.println("instance.getClass() = " + instance.getClass().toString());
+      System.out.println(instance);
+
+      return (DalStorageFactory)instance;
+
+      // return (DalStorageFactory) Class.forName(storageFactoryClassName).newInstance();
     } catch (ClassNotFoundException | IllegalAccessException | InstantiationException ex) {
       throw new StorageInitializtionException(ex);
     }
@@ -31,8 +61,7 @@ public class DalDriver {
   public static DalEventStreaming loadHopsEventStreamingLib(
           String storageFactoryClassName) throws StorageInitializtionException {
     try {
-      return (DalEventStreaming) Class.forName(storageFactoryClassName).
-              newInstance();
+      return (DalEventStreaming) Class.forName(storageFactoryClassName).newInstance();
     } catch (ClassNotFoundException | IllegalAccessException | InstantiationException ex) {
       throw new StorageInitializtionException(ex);
     }

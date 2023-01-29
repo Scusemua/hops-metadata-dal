@@ -54,11 +54,22 @@ public abstract class EntityContext<T> {
       new ThreadLocal<>();
 
   /**
+   * We set this to false when performing a write operation and true when performing a read operation.
+   */
+  final protected static ThreadLocal<Boolean> metadataCacheReadsEnabled = ThreadLocal.withInitial(() -> true);
+
+  /**
+   * Used to prevent writes/updates to the local metadata cache. We toggle this in the BlockManager, as it
+   * often reads batches of INodes (without their parents) from NDB, and caching an INode requires the full
+   * path, so trying to resolve huge batches of INodes' parents from NDB can cause problems.
+   */
+  final protected static ThreadLocal<Boolean> metadataCacheWritesEnabled = ThreadLocal.withInitial(() -> true);
+
+  /**
    * Defines the cache state of the request. This enum is only used for logging
    * purpose.
    */
   enum CacheHitState {
-
     HIT,
     LOSS,
     LOSS_LOCK_UPGRADE,
@@ -160,9 +171,7 @@ public abstract class EntityContext<T> {
 
   private static void log(String opName, CacheHitState state,
       Object... params) {
-    if (!LOG.isTraceEnabled()) {
-      return;
-    }
+    if (!LOG.isTraceEnabled()) return;
     StringBuilder message = new StringBuilder();
     if (state == CacheHitState.HIT) {
       message.append(ANSI_GREEN).append(opName).append(" ").append("hit")
@@ -208,12 +217,12 @@ public abstract class EntityContext<T> {
 
   public static void log(FinderType finderType, CacheHitState state,
       Object... params) {
+    if (!LOG.isTraceEnabled()) return;
     log(getOperationMessage(finderType), state, params);
   }
 
   private static String getOperationMessage(FinderType finder) {
-    return "find-" + finder.getType().getSimpleName().toLowerCase() + "-" +
-        finder.toString();
+    return "find-" + finder.getType().getSimpleName().toLowerCase() + "-" + finder;
   }
 
   public void preventStorageCall(boolean val) {
@@ -228,6 +237,28 @@ public abstract class EntityContext<T> {
     return currentLockMode.get();
   }
 
+  /**
+   * Returns true if both localMetadataCachedEnabled is true and the current lock mode is not WRITE LOCK.
+   */
+  public static boolean areMetadataCacheReadsEnabled() {
+    return metadataCacheReadsEnabled.get() && currentLockMode.get() != LockMode.WRITE_LOCK;
+  }
+
+  public static boolean areMetadataCacheWritesEnabled() {
+    return metadataCacheWritesEnabled.get();
+  }
+
+  /**
+   * Pass true to enable; pass false to disable.
+   */
+  public static void toggleMetadataCacheReads(boolean enabled) {
+    metadataCacheReadsEnabled.set(enabled);
+  }
+
+  public static void toggleMetadataCacheWrites(boolean enabled) {
+    metadataCacheWritesEnabled.set(enabled);
+  }
+
   protected void aboutToAccessStorage(FinderType finderType)
       throws StorageCallPreventedException {
     aboutToAccessStorage(finderType, "");
@@ -237,7 +268,7 @@ public abstract class EntityContext<T> {
       throws StorageCallPreventedException {
     if (storageCallPrevented) {
       throw new StorageCallPreventedException("[" + finderType + "] Trying " +
-          "to access storage while it is disable in transaction, inconsistent" +
+          "to access storage while it is disabled in transaction; inconsistent" +
           " transaction context statement. Params=" + Arrays.toString(params));
     }
   }
